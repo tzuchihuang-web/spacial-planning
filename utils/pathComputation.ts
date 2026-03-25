@@ -313,7 +313,7 @@ export function computePath(
   // Check for direct collisions
   for (let i = 0; i < waypoints.length - 1; i++) {
     for (const item of furniture) {
-      if (excludeTypes.includes(item.type)) continue;
+      if ((excludeTypes as string[]).includes(item.type)) continue;
       if (lineIntersectsFurniture(waypoints[i], waypoints[i + 1], item, 0.05)) {
         minClearance = 0;
         break;
