@@ -177,169 +177,70 @@ export function POVView({
       return { x: screenX, y: screenY, depth: rotatedY };
     };
 
-    // Draw walls
-    const drawWall = (x1: number, y1: number, x2: number, y2: number, color: string) => {
-      const wallHeight = room.height;
-      
-      const p1Bottom = projectToScreen(x1, y1, 0);
-      const p2Bottom = projectToScreen(x2, y2, 0);
-      const p1Top = projectToScreen(x1, y1, wallHeight);
-      const p2Top = projectToScreen(x2, y2, wallHeight);
-
-      if (!p1Bottom || !p2Bottom || !p1Top || !p2Top) return;
-
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      ctx.moveTo(p1Bottom.x, p1Bottom.y);
-      ctx.lineTo(p2Bottom.x, p2Bottom.y);
-      ctx.lineTo(p2Top.x, p2Top.y);
-      ctx.lineTo(p1Top.x, p1Top.y);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = '#94a3b8';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    };
-
-    // Room walls
-    drawWall(0, 0, room.width, 0, '#f1f5f9'); // Front wall (with door)
-    drawWall(0, 0, 0, room.depth, '#e2e8f0'); // Left wall
-    drawWall(room.width, 0, room.width, room.depth, '#d1d5db'); // Right wall
-    drawWall(0, room.depth, room.width, room.depth, '#f3f4f6'); // Back wall
-
-    // Draw fixed zones on floor
-    const drawZone = (zone: { x: number; y: number; width: number; depth: number }, color: string, label: string) => {
-      const corners = [
-        projectToScreen(zone.x, zone.y, 0),
-        projectToScreen(zone.x + zone.width, zone.y, 0),
-        projectToScreen(zone.x + zone.width, zone.y + zone.depth, 0),
-        projectToScreen(zone.x, zone.y + zone.depth, 0),
-      ].filter(Boolean);
-
-      if (corners.length < 4) return;
-
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      ctx.moveTo(corners[0]!.x, corners[0]!.y);
-      corners.forEach(c => c && ctx.lineTo(c.x, c.y));
-      ctx.closePath();
-      ctx.fill();
-
-      // Label
-      const center = projectToScreen(zone.x + zone.width / 2, zone.y + zone.depth / 2, 0);
-      if (center && center.depth < 8) {
-        ctx.fillStyle = '#334155';
-        ctx.font = `${Math.max(10, 14 / center.depth * 2)}px Inter, system-ui, sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.fillText(label, center.x, center.y);
-      }
-    };
-
-    drawZone(room.kitchen, 'rgba(254, 243, 199, 0.7)', 'Kitchen');
-    drawZone(room.bathroom, 'rgba(224, 242, 254, 0.7)', 'Bathroom');
-
-    // Sort furniture by depth (back to front)
-    const sortedFurniture = [...furniture]
-      .map(item => {
-        const dims = getRotatedDimensions(item);
-        const centerX = item.x + dims.width / 2;
-        const centerY = item.y + dims.depth / 2;
-        const dx = centerX - cameraX;
-        const dy = centerY - cameraY;
-        const rotatedY = dx * Math.sin(-cameraAngle) + dy * Math.cos(-cameraAngle);
-        return { item, depth: rotatedY };
-      })
-      .filter(f => f.depth > 0.3)
-      .sort((a, b) => b.depth - a.depth);
-
-    // Draw furniture
-    sortedFurniture.forEach(({ item }) => {
+    // Draw furniture in the POV
+    furniture.forEach(item => {
       const dims = getRotatedDimensions(item);
-      const h = item.height;
+      
+      // Draw furniture as walls from POV
+      const p1 = projectToScreen(item.x, item.y, 0);
+      const p2 = projectToScreen(item.x + dims.width, item.y, 0);
+      const p3 = projectToScreen(item.x + dims.width, item.y, item.height);
+      const p4 = projectToScreen(item.x, item.y, item.height);
+      
+      const p5 = projectToScreen(item.x, item.y + dims.depth, 0);
+      const p6 = projectToScreen(item.x + dims.width, item.y + dims.depth, 0);
+      const p7 = projectToScreen(item.x + dims.width, item.y + dims.depth, item.height);
+      const p8 = projectToScreen(item.x, item.y + dims.depth, item.height);
 
-      // Get all 8 corners of the box
-      const corners = {
-        bottomFrontLeft: projectToScreen(item.x, item.y, 0),
-        bottomFrontRight: projectToScreen(item.x + dims.width, item.y, 0),
-        bottomBackLeft: projectToScreen(item.x, item.y + dims.depth, 0),
-        bottomBackRight: projectToScreen(item.x + dims.width, item.y + dims.depth, 0),
-        topFrontLeft: projectToScreen(item.x, item.y, h),
-        topFrontRight: projectToScreen(item.x + dims.width, item.y, h),
-        topBackLeft: projectToScreen(item.x, item.y + dims.depth, h),
-        topBackRight: projectToScreen(item.x + dims.width, item.y + dims.depth, h),
-      };
+      if (!p1 || !p2 || !p3 || !p4 || !p5 || !p6 || !p7 || !p8) return;
 
-      // Skip if not visible
-      const visibleCorners = Object.values(corners).filter(Boolean);
-      if (visibleCorners.length < 4) return;
-
-      // Draw top face
-      if (corners.topFrontLeft && corners.topFrontRight && corners.topBackRight && corners.topBackLeft) {
+      // Front face (closer to camera)
+      if (p1.depth < p5.depth) {
         ctx.fillStyle = item.color;
         ctx.beginPath();
-        ctx.moveTo(corners.topFrontLeft.x, corners.topFrontLeft.y);
-        ctx.lineTo(corners.topFrontRight.x, corners.topFrontRight.y);
-        ctx.lineTo(corners.topBackRight.x, corners.topBackRight.y);
-        ctx.lineTo(corners.topBackLeft.x, corners.topBackLeft.y);
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.lineTo(p3.x, p3.y);
+        ctx.lineTo(p4.x, p4.y);
         ctx.closePath();
         ctx.fill();
-        ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+        ctx.strokeStyle = '#64748b';
         ctx.lineWidth = 1;
         ctx.stroke();
       }
 
-      // Draw front face
-      if (corners.bottomFrontLeft && corners.bottomFrontRight && corners.topFrontRight && corners.topFrontLeft) {
-        ctx.fillStyle = adjustBrightness(item.color, -15);
+      // Right face
+      ctx.fillStyle = adjustBrightness(item.color, -20);
+      ctx.beginPath();
+      ctx.moveTo(p2.x, p2.y);
+      ctx.lineTo(p6.x, p6.y);
+      ctx.lineTo(p7.x, p7.y);
+      ctx.lineTo(p3.x, p3.y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Top face
+      if (Math.abs(p3.y - p7.y) < Math.abs(p3.y - p1.y)) {
+        ctx.fillStyle = adjustBrightness(item.color, -10);
         ctx.beginPath();
-        ctx.moveTo(corners.bottomFrontLeft.x, corners.bottomFrontLeft.y);
-        ctx.lineTo(corners.bottomFrontRight.x, corners.bottomFrontRight.y);
-        ctx.lineTo(corners.topFrontRight.x, corners.topFrontRight.y);
-        ctx.lineTo(corners.topFrontLeft.x, corners.topFrontLeft.y);
+        ctx.moveTo(p3.x, p3.y);
+        ctx.lineTo(p7.x, p7.y);
+        ctx.lineTo(p8.x, p8.y);
+        ctx.lineTo(p4.x, p4.y);
         ctx.closePath();
         ctx.fill();
-        ctx.stroke();
-      }
-
-      // Draw side faces
-      if (corners.bottomFrontRight && corners.bottomBackRight && corners.topBackRight && corners.topFrontRight) {
-        ctx.fillStyle = adjustBrightness(item.color, -25);
-        ctx.beginPath();
-        ctx.moveTo(corners.bottomFrontRight.x, corners.bottomFrontRight.y);
-        ctx.lineTo(corners.bottomBackRight.x, corners.bottomBackRight.y);
-        ctx.lineTo(corners.topBackRight.x, corners.topBackRight.y);
-        ctx.lineTo(corners.topFrontRight.x, corners.topFrontRight.y);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-      }
-
-      if (corners.bottomFrontLeft && corners.bottomBackLeft && corners.topBackLeft && corners.topFrontLeft) {
-        ctx.fillStyle = adjustBrightness(item.color, -20);
-        ctx.beginPath();
-        ctx.moveTo(corners.bottomFrontLeft.x, corners.bottomFrontLeft.y);
-        ctx.lineTo(corners.bottomBackLeft.x, corners.bottomBackLeft.y);
-        ctx.lineTo(corners.topBackLeft.x, corners.topBackLeft.y);
-        ctx.lineTo(corners.topFrontLeft.x, corners.topFrontLeft.y);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-      }
-
-      // Draw label on top
-      const labelPos = projectToScreen(item.x + dims.width / 2, item.y + dims.depth / 2, h);
-      if (labelPos && labelPos.depth < 6) {
-        const fontSize = Math.max(10, Math.min(16, 24 / labelPos.depth));
-        ctx.fillStyle = '#ffffff';
-        ctx.font = `bold ${fontSize}px Inter, system-ui, sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.shadowColor = 'rgba(0,0,0,0.5)';
-        ctx.shadowBlur = 3;
-        ctx.fillText(item.label, labelPos.x, labelPos.y);
-        ctx.shadowBlur = 0;
       }
     });
+
+    // Helper: adjust color brightness
+    function adjustBrightness(hex: string, amount: number): string {
+      const num = parseInt(hex.replace('#', ''), 16);
+      const r = Math.max(0, Math.min(255, ((num >> 16) & 0xff) + amount));
+      const g = Math.max(0, Math.min(255, ((num >> 8) & 0xff) + amount));
+      const b = Math.max(0, Math.min(255, (num & 0xff) + amount));
+      return `rgb(${r}, ${g}, ${b})`;
+    }
 
     // Draw path preview on floor
     if (pathState?.isVisible && pathState.waypoints.length > 1) {

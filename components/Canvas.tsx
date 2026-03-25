@@ -33,8 +33,12 @@ export function Canvas({
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 });
   
-  // 3D view camera state
-  const [camera, setCamera] = useState({ rotationY: -30, zoom: 1 });
+  // 3D view camera state - improved orbit camera
+  const [camera, setCamera] = useState({ 
+    rotationX: 45,  // tilt angle (degrees)
+    rotationY: -45, // orbit angle (degrees)
+    distance: 7,    // distance from center
+  });
   const [isRotatingCamera, setIsRotatingCamera] = useState(false);
   const lastMousePos = useRef({ x: 0, y: 0 });
 
@@ -94,9 +98,11 @@ export function Canvas({
   // Mouse handlers
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (currentView === '3d') {
-      // Start camera rotation
-      setIsRotatingCamera(true);
-      lastMousePos.current = { x: e.clientX, y: e.clientY };
+      // Start camera rotation - only in 3D view
+      if (e.button === 0) { // left click only
+        setIsRotatingCamera(true);
+        lastMousePos.current = { x: e.clientX, y: e.clientY };
+      }
       return;
     }
 
@@ -122,10 +128,13 @@ export function Canvas({
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (currentView === '3d' && isRotatingCamera) {
       const deltaX = e.clientX - lastMousePos.current.x;
+      const deltaY = e.clientY - lastMousePos.current.y;
       lastMousePos.current = { x: e.clientX, y: e.clientY };
+      
       setCamera(prev => ({
         ...prev,
         rotationY: prev.rotationY + deltaX * 0.5,
+        rotationX: Math.max(-85, Math.min(85, prev.rotationX + deltaY * 0.5)),
       }));
       return;
     }
@@ -153,7 +162,7 @@ export function Canvas({
       e.preventDefault();
       setCamera(prev => ({
         ...prev,
-        zoom: Math.max(0.5, Math.min(2, prev.zoom - e.deltaY * 0.001)),
+        distance: Math.max(3, Math.min(12, prev.distance + e.deltaY * 0.002)),
       }));
     }
   }, [currentView]);
@@ -338,27 +347,47 @@ export function Canvas({
 
   }, [room, furniture, pathState, selectedFurnitureId, canvasSize, roomWidth, roomDepth]);
 
-  // Draw 3D isometric view
+  // Draw 3D view with proper perspective camera
   const draw3D = useCallback((ctx: CanvasRenderingContext2D) => {
     const { width, height } = canvasSize;
     
-    // Clear
-    ctx.fillStyle = '#e2e8f0';
+    // Clear background
+    ctx.fillStyle = '#cbd5e1';
     ctx.fillRect(0, 0, width, height);
 
     const centerX = width / 2;
     const centerY = height / 2;
-    const scale = SCALE * 0.7 * camera.zoom;
-    const angle = (camera.rotationY * Math.PI) / 180;
-    const tilt = 0.5; // Isometric tilt
-
-    // Transform function for 3D projection
-    const project = (x: number, y: number, z: number) => {
-      const rotatedX = x * Math.cos(angle) - y * Math.sin(angle);
-      const rotatedY = x * Math.sin(angle) + y * Math.cos(angle);
+    
+    // Orbit camera - camera position based on rotation and distance
+    const rotX = (camera.rotationX * Math.PI) / 180;
+    const rotY = (camera.rotationY * Math.PI) / 180;
+    const d = camera.distance;
+    
+    // Camera position in world space
+    const camX = Math.sin(rotY) * Math.cos(rotX) * d;
+    const camY = Math.sin(rotX) * d;
+    const camZ = Math.cos(rotY) * Math.cos(rotX) * d;
+    
+    // Look at center of room
+    const lookX = room.width / 2;
+    const lookY = room.height / 2;
+    const lookZ = room.depth / 2;
+    
+    // Simple perspective projection
+    const project = (x: number, y: number, z: number): { x: number; y: number; depth: number } | null => {
+      // Translate relative to camera
+      let dx = x - camX;
+      let dy = y - camY;
+      let dz = z - camZ;
+      
+      // Simple projection: don't render if behind camera
+      if (dz >= 0) return null;
+      
+      const scale = 400 / (-dz);
       return {
-        x: centerX + rotatedX * scale,
-        y: centerY + rotatedY * scale * tilt - z * scale * 0.8,
+        x: centerX + dx * scale,
+        y: centerY - dy * scale,
+        depth: -dz,
       };
     };
 
@@ -366,184 +395,174 @@ export function Canvas({
     const floorCorners = [
       project(0, 0, 0),
       project(room.width, 0, 0),
-      project(room.width, room.depth, 0),
-      project(0, room.depth, 0),
-    ];
+      project(room.width, 0, room.depth),
+      project(0, 0, room.depth),
+    ].filter((p): p is { x: number; y: number; depth: number } => p !== null);
 
-    ctx.fillStyle = '#f8fafc';
-    ctx.beginPath();
-    ctx.moveTo(floorCorners[0].x, floorCorners[0].y);
-    floorCorners.forEach(c => ctx.lineTo(c.x, c.y));
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = '#94a3b8';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    // Draw grid on floor
-    ctx.strokeStyle = '#e2e8f0';
-    ctx.lineWidth = 1;
-    for (let x = 0; x <= room.width; x += 0.5) {
-      const start = project(x, 0, 0);
-      const end = project(x, room.depth, 0);
+    if (floorCorners.length === 4) {
+      ctx.fillStyle = '#f1f5f9';
       ctx.beginPath();
-      ctx.moveTo(start.x, start.y);
-      ctx.lineTo(end.x, end.y);
-      ctx.stroke();
-    }
-    for (let y = 0; y <= room.depth; y += 0.5) {
-      const start = project(0, y, 0);
-      const end = project(room.width, y, 0);
-      ctx.beginPath();
-      ctx.moveTo(start.x, start.y);
-      ctx.lineTo(end.x, end.y);
+      ctx.moveTo(floorCorners[0].x, floorCorners[0].y);
+      floorCorners.forEach(c => ctx.lineTo(c.x, c.y));
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 2;
       ctx.stroke();
     }
 
-    // Draw walls (back two)
-    const wallHeight = room.height;
-    
+    // Draw walls
+    const drawWall = (corners: ({ x: number; y: number; depth: number } | null)[], color: string) => {
+      const validCorners = corners.filter((p): p is { x: number; y: number; depth: number } => p !== null);
+      if (validCorners.length < 3) return;
+      
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(validCorners[0].x, validCorners[0].y);
+      validCorners.forEach(c => ctx.lineTo(c.x, c.y));
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#64748b';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    };
+
     // Back wall
-    ctx.fillStyle = '#f1f5f9';
-    ctx.beginPath();
-    const bw1 = project(0, room.depth, 0);
-    const bw2 = project(room.width, room.depth, 0);
-    const bw3 = project(room.width, room.depth, wallHeight);
-    const bw4 = project(0, room.depth, wallHeight);
-    ctx.moveTo(bw1.x, bw1.y);
-    ctx.lineTo(bw2.x, bw2.y);
-    ctx.lineTo(bw3.x, bw3.y);
-    ctx.lineTo(bw4.x, bw4.y);
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = '#94a3b8';
-    ctx.lineWidth = 2;
-    ctx.stroke();
+    drawWall([
+      project(0, 0, room.depth),
+      project(room.width, 0, room.depth),
+      project(room.width, room.height, room.depth),
+      project(0, room.height, room.depth),
+    ], '#e2e8f0');
 
-    // Left wall
-    ctx.fillStyle = '#e2e8f0';
-    ctx.beginPath();
-    const lw1 = project(0, 0, 0);
-    const lw2 = project(0, room.depth, 0);
-    const lw3 = project(0, room.depth, wallHeight);
-    const lw4 = project(0, 0, wallHeight);
-    ctx.moveTo(lw1.x, lw1.y);
-    ctx.lineTo(lw2.x, lw2.y);
-    ctx.lineTo(lw3.x, lw3.y);
-    ctx.lineTo(lw4.x, lw4.y);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
+    // Right wall
+    drawWall([
+      project(room.width, 0, 0),
+      project(room.width, 0, room.depth),
+      project(room.width, room.height, room.depth),
+      project(room.width, room.height, 0),
+    ], '#d1d5db');
 
     // Draw fixed zones
     // Kitchen
-    ctx.fillStyle = 'rgba(254, 243, 199, 0.7)';
-    ctx.beginPath();
-    const k1 = project(room.kitchen.x, room.kitchen.y, 0);
-    const k2 = project(room.kitchen.x + room.kitchen.width, room.kitchen.y, 0);
-    const k3 = project(room.kitchen.x + room.kitchen.width, room.kitchen.y + room.kitchen.depth, 0);
-    const k4 = project(room.kitchen.x, room.kitchen.y + room.kitchen.depth, 0);
-    ctx.moveTo(k1.x, k1.y);
-    ctx.lineTo(k2.x, k2.y);
-    ctx.lineTo(k3.x, k3.y);
-    ctx.lineTo(k4.x, k4.y);
-    ctx.closePath();
-    ctx.fill();
+    const kitchenBottomLeft = project(room.kitchen.x, 0, room.kitchen.y);
+    const kitchenBottomRight = project(room.kitchen.x + room.kitchen.width, 0, room.kitchen.y);
+    const kitchenTopRight = project(room.kitchen.x + room.kitchen.width, 0, room.kitchen.y + room.kitchen.depth);
+    const kitchenTopLeft = project(room.kitchen.x, 0, room.kitchen.y + room.kitchen.depth);
+
+    if (kitchenBottomLeft && kitchenBottomRight && kitchenTopRight && kitchenTopLeft) {
+      ctx.fillStyle = 'rgba(253, 224, 71, 0.4)';
+      ctx.beginPath();
+      ctx.moveTo(kitchenBottomLeft.x, kitchenBottomLeft.y);
+      ctx.lineTo(kitchenBottomRight.x, kitchenBottomRight.y);
+      ctx.lineTo(kitchenTopRight.x, kitchenTopRight.y);
+      ctx.lineTo(kitchenTopLeft.x, kitchenTopLeft.y);
+      ctx.closePath();
+      ctx.fill();
+    }
 
     // Bathroom
-    ctx.fillStyle = 'rgba(224, 242, 254, 0.7)';
-    ctx.beginPath();
-    const b1 = project(room.bathroom.x, room.bathroom.y, 0);
-    const b2 = project(room.bathroom.x + room.bathroom.width, room.bathroom.y, 0);
-    const b3 = project(room.bathroom.x + room.bathroom.width, room.bathroom.y + room.bathroom.depth, 0);
-    const b4 = project(room.bathroom.x, room.bathroom.y + room.bathroom.depth, 0);
-    ctx.moveTo(b1.x, b1.y);
-    ctx.lineTo(b2.x, b2.y);
-    ctx.lineTo(b3.x, b3.y);
-    ctx.lineTo(b4.x, b4.y);
-    ctx.closePath();
-    ctx.fill();
+    const bathroomBottomLeft = project(room.bathroom.x, 0, room.bathroom.y);
+    const bathroomBottomRight = project(room.bathroom.x + room.bathroom.width, 0, room.bathroom.y);
+    const bathroomTopRight = project(room.bathroom.x + room.bathroom.width, 0, room.bathroom.y + room.bathroom.depth);
+    const bathroomTopLeft = project(room.bathroom.x, 0, room.bathroom.y + room.bathroom.depth);
+
+    if (bathroomBottomLeft && bathroomBottomRight && bathroomTopRight && bathroomTopLeft) {
+      ctx.fillStyle = 'rgba(96, 165, 250, 0.4)';
+      ctx.beginPath();
+      ctx.moveTo(bathroomBottomLeft.x, bathroomBottomLeft.y);
+      ctx.lineTo(bathroomBottomRight.x, bathroomBottomRight.y);
+      ctx.lineTo(bathroomTopRight.x, bathroomTopRight.y);
+      ctx.lineTo(bathroomTopLeft.x, bathroomTopLeft.y);
+      ctx.closePath();
+      ctx.fill();
+    }
 
     // Draw furniture as 3D boxes
-    // Sort by distance (back to front)
-    const sortedFurniture = [...furniture].sort((a, b) => {
-      const distA = a.x * Math.sin(angle) + a.y * Math.cos(angle);
-      const distB = b.x * Math.sin(angle) + b.y * Math.cos(angle);
-      return distA - distB;
-    });
+    const furnitureWithDepth = furniture.map(item => {
+      const center = project(item.x + getRotatedDimensions(item).width / 2, item.height / 2, item.y + getRotatedDimensions(item).depth / 2);
+      return { item, center, depth: center?.depth ?? 0 };
+    }).filter(f => f.center !== null && f.center !== undefined);
 
-    sortedFurniture.forEach(item => {
+    // Sort by depth (painter's algorithm)
+    furnitureWithDepth.sort((a, b) => (a.depth ?? 0) - (b.depth ?? 0));
+
+    furnitureWithDepth.forEach(({ item }) => {
       const dims = getRotatedDimensions(item);
       const h = item.height;
       const isSelected = item.id === selectedFurnitureId;
 
-      // Box corners (bottom)
-      const corners = [
-        project(item.x, item.y, 0),
-        project(item.x + dims.width, item.y, 0),
-        project(item.x + dims.width, item.y + dims.depth, 0),
-        project(item.x, item.y + dims.depth, 0),
-      ];
-      // Box corners (top)
-      const topCorners = [
-        project(item.x, item.y, h),
-        project(item.x + dims.width, item.y, h),
-        project(item.x + dims.width, item.y + dims.depth, h),
-        project(item.x, item.y + dims.depth, h),
-      ];
+      // Bottom corners
+      const b00 = project(item.x, 0, item.y);
+      const b10 = project(item.x + dims.width, 0, item.y);
+      const b11 = project(item.x + dims.width, 0, item.y + dims.depth);
+      const b01 = project(item.x, 0, item.y + dims.depth);
 
-      // Draw top face
-      ctx.fillStyle = item.color;
-      ctx.beginPath();
-      ctx.moveTo(topCorners[0].x, topCorners[0].y);
-      topCorners.forEach(c => ctx.lineTo(c.x, c.y));
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = isSelected ? '#3b82f6' : 'rgba(0,0,0,0.3)';
-      ctx.lineWidth = isSelected ? 3 : 1;
-      ctx.stroke();
+      // Top corners
+      const t00 = project(item.x, h, item.y);
+      const t10 = project(item.x + dims.width, h, item.y);
+      const t11 = project(item.x + dims.width, h, item.y + dims.depth);
+      const t01 = project(item.x, h, item.y + dims.depth);
 
-      // Draw front faces
-      // Right face
-      ctx.fillStyle = adjustBrightness(item.color, -20);
-      ctx.beginPath();
-      ctx.moveTo(corners[1].x, corners[1].y);
-      ctx.lineTo(corners[2].x, corners[2].y);
-      ctx.lineTo(topCorners[2].x, topCorners[2].y);
-      ctx.lineTo(topCorners[1].x, topCorners[1].y);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
+      // Draw top face (most visible)
+      if (t00 && t10 && t11 && t01) {
+        ctx.fillStyle = item.color;
+        ctx.beginPath();
+        ctx.moveTo(t00.x, t00.y);
+        ctx.lineTo(t10.x, t10.y);
+        ctx.lineTo(t11.x, t11.y);
+        ctx.lineTo(t01.x, t01.y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = isSelected ? '#3b82f6' : 'rgba(0,0,0,0.25)';
+        ctx.lineWidth = isSelected ? 3 : 1;
+        ctx.stroke();
+      }
 
-      // Front face
-      ctx.fillStyle = adjustBrightness(item.color, -10);
-      ctx.beginPath();
-      ctx.moveTo(corners[0].x, corners[0].y);
-      ctx.lineTo(corners[1].x, corners[1].y);
-      ctx.lineTo(topCorners[1].x, topCorners[1].y);
-      ctx.lineTo(topCorners[0].x, topCorners[0].y);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
+      // Draw front face
+      if (b00 && b10 && t10 && t00) {
+        ctx.fillStyle = adjustBrightness(item.color, -15);
+        ctx.beginPath();
+        ctx.moveTo(b00.x, b00.y);
+        ctx.lineTo(b10.x, b10.y);
+        ctx.lineTo(t10.x, t10.y);
+        ctx.lineTo(t00.x, t00.y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
 
-      // Label on top
-      const labelPos = project(item.x + dims.width / 2, item.y + dims.depth / 2, h);
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 11px Inter, system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.shadowColor = 'rgba(0,0,0,0.5)';
-      ctx.shadowBlur = 2;
-      ctx.fillText(item.label, labelPos.x, labelPos.y);
-      ctx.shadowBlur = 0;
+      // Draw right face
+      if (b10 && b11 && t11 && t10) {
+        ctx.fillStyle = adjustBrightness(item.color, -30);
+        ctx.beginPath();
+        ctx.moveTo(b10.x, b10.y);
+        ctx.lineTo(b11.x, b11.y);
+        ctx.lineTo(t11.x, t11.y);
+        ctx.lineTo(t10.x, t10.y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      // Label
+      if (t01) {
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 11px Inter, system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.shadowColor = 'rgba(0,0,0,0.6)';
+        ctx.shadowBlur = 3;
+        ctx.fillText(item.label, t01.x, t01.y);
+        ctx.shadowBlur = 0;
+      }
     });
 
     // Instructions
-    ctx.fillStyle = '#64748b';
+    ctx.fillStyle = '#475569';
     ctx.font = '12px Inter, system-ui, sans-serif';
     ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText('Drag to rotate view | Scroll to zoom', width / 2, height - 20);
+    ctx.fillText('Drag to rotate | Scroll to zoom', width / 2, height - 15);
 
   }, [room, furniture, selectedFurnitureId, canvasSize, camera]);
 
