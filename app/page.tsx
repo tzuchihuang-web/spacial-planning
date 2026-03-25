@@ -1,26 +1,31 @@
 'use client';
 
 import { useState } from 'react';
-import { ModeSelector } from '@/components/ModeSelector';
+import { StudyTask } from '@/types';
+import { TaskSelector } from '@/components/TaskSelector';
 import { RoomPlanner } from '@/components/RoomPlanner';
-import type { ExperimentMode } from '@/types';
+import { logTaskSelected } from '@/utils/researchLogger';
 
-export default function Home() {
-  const [mode, setMode] = useState<ExperimentMode>(null);
+export default function HomePage() {
+  const [selectedTask, setSelectedTask] = useState<StudyTask | null>(null);
 
-  const handleModeSelect = (selectedMode: 'A' | 'B') => {
-    console.log(`[Research] Mode ${selectedMode} selected at ${new Date().toISOString()}`);
-    setMode(selectedMode);
+  const handleSelectTask = (task: StudyTask) => {
+    logTaskSelected(task);
+    setSelectedTask(task);
   };
 
-  const handleReset = () => {
-    console.log(`[Research] Session reset at ${new Date().toISOString()}`);
-    setMode(null);
+  const handleBackToSelection = () => {
+    setSelectedTask(null);
   };
 
-  if (!mode) {
-    return <ModeSelector onModeSelect={handleModeSelect} />;
+  if (!selectedTask) {
+    return <TaskSelector onSelectTask={handleSelectTask} />;
   }
 
-  return <RoomPlanner mode={mode} onReset={handleReset} />;
+  return (
+    <RoomPlanner 
+      task={selectedTask} 
+      onBack={handleBackToSelection} 
+    />
+  );
 }

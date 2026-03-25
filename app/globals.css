@@ -20,7 +20,7 @@
   --ring: #3b82f6;
   --radius: 0.5rem;
 
-  /* Path colors */
+  /* Path status colors */
   --path-green: #22c55e;
   --path-yellow: #eab308;
   --path-red: #ef4444;
@@ -31,6 +31,7 @@
   --room-floor: #fafafa;
   --room-wall: #94a3b8;
   --bathroom-fill: #e0f2fe;
+  --kitchen-fill: #fef3c7;
   --doorway-fill: #fef3c7;
 }
 
@@ -66,4 +67,51 @@
 body {
   background-color: var(--background);
   color: var(--foreground);
+}
+
+/* Selection highlight animation */
+@keyframes selection-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.selection-highlight {
+  animation: selection-pulse 1.5s ease-in-out infinite;
+}
+
+/* Smooth transitions for interactive elements */
+button, a {
+  transition: background-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
+}
+
+button:active {
+  transform: scale(0.98);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--muted);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--muted-foreground);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--foreground);
+}
+
+/* Keyboard focus styles */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
